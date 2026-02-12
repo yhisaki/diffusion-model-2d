@@ -1,0 +1,10 @@
+device: "cuda" # "cuda" or "cpu"
+seed: 1234
+
+data:
+  type: "circles" # "circles" or "spiral"
+
+model:
+  predictor: "x_start" # "x_start" or "noise" or "score"
+  sde: "VP" # "VP" or "VE"
+  ode_solver: "dpm_solver_pp" # "dpm_solver_pp" or "euler_maruyama"
