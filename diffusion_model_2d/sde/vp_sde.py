@@ -1,4 +1,5 @@
 import torch
+
 from diffusion_model_2d.sde.sde import SDE
 
 
@@ -7,7 +8,7 @@ class VPSDE(SDE):
         self,
         beta_min: float = 0.1,
         beta_max: float = 20.0,
-    ):
+    ) -> None:
         super().__init__()
         self.beta_min = beta_min
         self.beta_max = beta_max
@@ -31,7 +32,9 @@ class VPSDE(SDE):
     def diffusion(self, t: torch.Tensor) -> torch.Tensor:
         return torch.sqrt(self.beta(t)).clamp_min(1e-12)
 
-    def marginal_prob(self, x0: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def marginal_prob(
+        self, x0: torch.Tensor, t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         mean = self.alpha(t) * x0
         std = self.sigma(t)
         return mean, std

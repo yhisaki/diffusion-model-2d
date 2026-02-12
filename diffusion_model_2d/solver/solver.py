@@ -2,20 +2,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Optional
 
 import torch
 
-from diffusion_model_2d.sde.sde import SDE
 from diffusion_model_2d.model import Predictor
+from diffusion_model_2d.sde.sde import SDE
 
 
 @dataclass(frozen=True)
 class SolverState:
     """Internal state for multistep solvers."""
 
-    t_prev: List[torch.Tensor]  # list of shape [1] tensors (times)
-    model_prev: List[torch.Tensor]  # list of model outputs at corresponding times
+    t_prev: list[torch.Tensor]  # list of shape [1] tensors (times)
+    model_prev: list[torch.Tensor]  # list of model outputs at corresponding times
 
 
 class Solver(ABC):
@@ -31,19 +30,19 @@ class Solver(ABC):
         sde: SDE,
         predictor: Predictor,
         *,
-        device: Optional[torch.device] = None,
+        device: torch.device | None = None,
     ) -> None:
         self.sde = sde
         self.predictor = predictor
         self.device = device
 
-    def to(self, device: torch.device) -> "Solver":
+    def to(self, device: torch.device) -> Solver:
         self.device = device
         return self
 
     @abstractmethod
     def denoise_to_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Return x0 prediction from x_t at time t. Used when denoise_to_x0=True in sample()."""
+        """Return x0 from x_t at time t. Used when denoise_to_x0=True in sample()."""
         raise NotImplementedError
 
     @abstractmethod
@@ -81,8 +80,8 @@ class Solver(ABC):
         steps: int = 20,
         t_start: float = 1.0,
         t_end: float = 1e-4,
-        timesteps: Optional[torch.Tensor] = None,
-    ) -> List[torch.Tensor]:
+        timesteps: torch.Tensor | None = None,
+    ) -> list[torch.Tensor]:
         """
         Run the sampling loop from t_start to t_end.
 
@@ -95,7 +94,8 @@ class Solver(ABC):
                        If provided, 'steps', 't_start', 't_end' are ignored.
 
         Returns:
-            List of sample tensors at each step (length steps + 1: initial x and after each step).
+            List of sample tensors at each step (length steps + 1: initial x
+            and after each step).
         """
         device = x.device if self.device is None else self.device
         x = x.to(device)

@@ -17,7 +17,8 @@ class DPMSolverPP2M(Solver):
 
     This is the second-order multistep variant (2M):
       - first step uses the 1st-order update (DDIM-equivalent in x0-form),
-      - subsequent steps use the 2nd-order multistep update reusing the previous x0 predictions.
+      - subsequent steps use the 2nd-order multistep update reusing the
+        previous x0 predictions.
 
     Notes:
       - Requires PredictorType.X_START and VPSDE.
@@ -98,8 +99,8 @@ class DPMSolverPP2M(Solver):
     ) -> torch.Tensor:
         """
         Generate Log-SNR uniform schedule.
-        Calculates lambda(t_start) and lambda(t_end), interpolates linearly in lambda space,
-        and then inverts back to time t.
+        Calculates lambda(t_start) and lambda(t_end), interpolates linearly
+        in lambda space, and then inverts back to time t.
         """
         t_start_tensor = torch.tensor(t_start, device=device).reshape(1)
         t_end_tensor = torch.tensor(t_end, device=device).reshape(1)
@@ -126,9 +127,7 @@ class DPMSolverPP2M(Solver):
 
     def _predict_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         B = x.shape[0]
-        if t.dim() == 0:
-            t_in = t.expand(B).reshape(B, 1)
-        elif t.dim() == 1 and t.shape[0] == 1:
+        if t.dim() == 0 or t.dim() == 1 and t.shape[0] == 1:
             t_in = t.expand(B).reshape(B, 1)
         else:
             t_in = t
@@ -146,10 +145,7 @@ class DPMSolverPP2M(Solver):
     ) -> tuple[torch.Tensor, SolverState]:
         # Evaluate model at current time s
         B = x.shape[0]
-        if s.dim() == 0:
-            s_in = s.expand(B).reshape(B, 1)
-        else:
-            s_in = s
+        s_in = s.expand(B).reshape(B, 1) if s.dim() == 0 else s
 
         x0_s = self._predict_x0(x, s_in)
 
@@ -184,14 +180,8 @@ class DPMSolverPP2M(Solver):
         self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, x0_s: torch.Tensor
     ) -> torch.Tensor:
         B = x.shape[0]
-        if s.dim() == 0:
-            s_in = s.expand(B).reshape(B, 1)
-        else:
-            s_in = s
-        if t.dim() == 0:
-            t_in = t.expand(B).reshape(B, 1)
-        else:
-            t_in = t
+        s_in = s.expand(B).reshape(B, 1) if s.dim() == 0 else s
+        t_in = t.expand(B).reshape(B, 1) if t.dim() == 0 else t
 
         lam_s = self._lambda(s_in)
         lam_t = self._lambda(t_in)
@@ -215,18 +205,9 @@ class DPMSolverPP2M(Solver):
         t: torch.Tensor,
     ) -> torch.Tensor:
         B = x.shape[0]
-        if t_prev_0.dim() == 0:
-            t0_in = t_prev_0.expand(B).reshape(B, 1)
-        else:
-            t0_in = t_prev_0
-        if t_prev_1.dim() == 0:
-            t1_in = t_prev_1.expand(B).reshape(B, 1)
-        else:
-            t1_in = t_prev_1
-        if t.dim() == 0:
-            t_in = t.expand(B).reshape(B, 1)
-        else:
-            t_in = t
+        t0_in = t_prev_0.expand(B).reshape(B, 1) if t_prev_0.dim() == 0 else t_prev_0
+        t1_in = t_prev_1.expand(B).reshape(B, 1) if t_prev_1.dim() == 0 else t_prev_1
+        t_in = t.expand(B).reshape(B, 1) if t.dim() == 0 else t
 
         lam_1 = self._lambda(t1_in)
         lam_0 = self._lambda(t0_in)

@@ -1,7 +1,7 @@
 import torch
-from torch import nn
-from diffusion_model_2d.sde.sde import SDE
+
 from diffusion_model_2d.model import Predictor, PredictorType
+from diffusion_model_2d.sde.sde import SDE
 
 
 def loss_fn(

@@ -1,9 +1,8 @@
 import math
+from enum import Enum, auto
 
 import torch
 from torch import nn
-
-from enum import Enum, auto
 
 
 class GaussianFourierProjection(nn.Module):

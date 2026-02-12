@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+
 import torch
 
 
@@ -20,6 +21,7 @@ class SDE(ABC):
       - x is a torch.Tensor of shape [B, d] (or [B, ...])
     """
 
+    @abstractmethod
     def __init__(self) -> None:
         pass
 

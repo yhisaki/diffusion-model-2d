@@ -1,4 +1,5 @@
 import torch
+
 from diffusion_model_2d.sde.sde import SDE
 
 
@@ -13,11 +14,13 @@ class VESDE(SDE):
             raise ValueError("sigma_min and sigma_max must be positive.")
         if not (sigma_min < sigma_max):
             raise ValueError(
-                f"Require sigma_min < sigma_max, got sigma_min={sigma_min}, sigma_max={sigma_max}."
+                f"Require sigma_min < sigma_max, got sigma_min={sigma_min}, "
+                f"sigma_max={sigma_max}."
             )
         self.sigma_min = float(sigma_min)
         self.sigma_max = float(sigma_max)
-        self._log_sigma_ratio = float(torch.log(torch.tensor(self.sigma_max / self.sigma_min)))
+        ratio = self.sigma_max / self.sigma_min
+        self._log_sigma_ratio = float(torch.log(torch.tensor(ratio)))
 
     def sigma(self, t: torch.Tensor) -> torch.Tensor:
         log_ratio = t.new_tensor(self._log_sigma_ratio)
@@ -30,7 +33,9 @@ class VESDE(SDE):
         log_ratio = t.new_tensor(self._log_sigma_ratio)
         return self.sigma(t) * torch.sqrt(2.0 * log_ratio).clamp_min(1e-12)
 
-    def marginal_prob(self, x0: torch.Tensor, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def marginal_prob(
+        self, x0: torch.Tensor, t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         mean = x0
         std = self.sigma(t)
         return mean, std
