@@ -30,13 +30,16 @@ def loss_fn(
 
     if predictor.predictor_type == PredictorType.X_START:
         target = x0
+        weight = 1.0
     elif predictor.predictor_type == PredictorType.NOISE:
         target = z
+        weight = 1.0
     elif predictor.predictor_type == PredictorType.SCORE:
         target = -z / std
+        weight = std**2
     else:
         raise ValueError(f"Unknown predictor type: {predictor.predictor_type}")
 
-    loss = (pred - target).pow(2)
+    loss = (pred - target).pow(2) * weight
 
     return loss.mean()
