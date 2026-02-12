@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 
 from diffusion_model_2d.model import Predictor, PredictorType
+from diffusion_model_2d.sde.sde import SDE
 from diffusion_model_2d.sde.vp_sde import VPSDE
 
 from .solver import Solver, SolverState
@@ -19,13 +20,13 @@ class DPMSolverPP2M(Solver):
       - subsequent steps use the 2nd-order multistep update reusing the previous x0 predictions.
 
     Notes:
-      - Requires PredictorType.X_START and VPSDE; raises otherwise.
-      - Uses time-uniform spacing by default (handled by SolverBase.sample()).
+      - Requires PredictorType.X_START and VPSDE.
+      - Implements Log-SNR uniform scheduling in get_time_schedule.
     """
 
     def __init__(
         self,
-        sde: VPSDE,
+        sde: SDE,
         predictor: Predictor,
         *,
         device: torch.device | None = None,
@@ -48,15 +49,86 @@ class DPMSolverPP2M(Solver):
         return s.clamp_min(1e-12)
 
     def _lambda(self, t: torch.Tensor) -> torch.Tensor:
-        """Half-log-SNR: lambda(t) = log(alpha(t)) - log(sigma(t)). Shape follows input t."""
+        """Half-log-SNR: lambda(t) = log(alpha(t)) - log(sigma(t))."""
         a = self._alpha(t)
         s = self._sigma(t)
         return torch.log(a) - torch.log(s)
 
+    def _lambda_to_t(
+        self, lambda_val: torch.Tensor, t_min: float = 1e-5, t_max: float = 1.0
+    ) -> torch.Tensor:
+        """
+        Numerically invert lambda(t) to find t using Newton's method.
+        f(t) = lambda(t) - lambda_val = 0
+        """
+        # Initial guess: linear interpolation is usually close enough for convergence
+        # But simply starting from t_max or t_min is safer. Let's use midpoint.
+        t = torch.full_like(lambda_val, 0.5 * (t_min + t_max))
+
+        # Newton iterations
+        for _ in range(10):
+            # Calculate f(t) and f'(t)
+            # lambda(t) = log(alpha) - log(sigma)
+            # d(lambda)/dt = - beta(t) / (2 * sigma(t)^2)
+            # This derivative is derived from VP-SDE definitions.
+
+            # Clamp t to stay in valid range during iteration
+            t = t.clamp(t_min, t_max)
+
+            lam = self._lambda(t)
+            f = lam - lambda_val
+
+            beta_t = self.sde.beta(t)
+            sigma_t = self._sigma(t)
+            # Derivative: dlambda/dt
+            # sigma^2 can be small, add epsilon
+            d_lam = -0.5 * beta_t / (sigma_t.pow(2) + 1e-12)
+
+            # Update: t = t - f / f'
+            delta = f / (d_lam - 1e-12)  # Avoid div by zero
+            t = t - delta
+
+            if torch.abs(delta).max() < 1e-6:
+                break
+
+        return t.clamp(t_min, t_max)
+
+    def get_time_schedule(
+        self, steps: int, t_start: float, t_end: float, device: torch.device
+    ) -> torch.Tensor:
+        """
+        Generate Log-SNR uniform schedule.
+        Calculates lambda(t_start) and lambda(t_end), interpolates linearly in lambda space,
+        and then inverts back to time t.
+        """
+        t_start_tensor = torch.tensor(t_start, device=device).reshape(1)
+        t_end_tensor = torch.tensor(t_end, device=device).reshape(1)
+
+        lambda_start = self._lambda(t_start_tensor)
+        lambda_end = self._lambda(t_end_tensor)
+
+        # Uniform steps in lambda space
+        lambdas = torch.linspace(
+            lambda_start.item(), lambda_end.item(), steps + 1, device=device
+        )
+
+        # Invert back to time t
+        # We process all steps in parallel
+        timesteps = self._lambda_to_t(
+            lambdas, t_min=min(t_end, t_start), t_max=max(t_end, t_start)
+        )
+
+        # Ensure endpoints are exact
+        timesteps[0] = t_start
+        timesteps[-1] = t_end
+
+        return timesteps
+
     def _predict_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Convert network output to x0. This solver uses X_START only, so out is already x0."""
         B = x.shape[0]
-        if t.dim() == 1 and t.shape[0] == 1:
+        if t.dim() == 0:
+            t_in = t.expand(B).reshape(B, 1)
+        elif t.dim() == 1 and t.shape[0] == 1:
             t_in = t.expand(B).reshape(B, 1)
         else:
             t_in = t
@@ -72,26 +144,29 @@ class DPMSolverPP2M(Solver):
     def step(
         self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, state: SolverState
     ) -> tuple[torch.Tensor, SolverState]:
-        # Evaluate model at current time s (x0 prediction)
+        # Evaluate model at current time s
         B = x.shape[0]
-        s_in = s.expand(B).reshape(B, 1)
+        if s.dim() == 0:
+            s_in = s.expand(B).reshape(B, 1)
+        else:
+            s_in = s
+
         x0_s = self._predict_x0(x, s_in)
 
         # Update buffers
-        t_prev = state.t_prev + [s.clone()]
+        t_prev = state.t_prev + [s.clone().detach()]
         model_prev = state.model_prev + [x0_s]
 
-        # Keep only the last 2 entries (2M)
         if len(t_prev) > 2:
             t_prev = t_prev[-2:]
             model_prev = model_prev[-2:]
 
-        # If we don't yet have two previous model values, do 1st-order update
+        # 1st-order update
         if len(t_prev) < 2:
             x_next = self._first_order_update(x, s, t, x0_s)
             return x_next, SolverState(t_prev=t_prev, model_prev=model_prev)
 
-        # Otherwise do multistep 2nd order update
+        # 2nd-order update
         x_next = self._multistep_second_update(
             x=x,
             model_prev_1=model_prev[-2],
@@ -103,18 +178,20 @@ class DPMSolverPP2M(Solver):
         return x_next, SolverState(t_prev=t_prev, model_prev=model_prev)
 
     # -------------------------
-    # DPM-Solver++(2M) updates
+    # Updates (Identical to previous implementation)
     # -------------------------
     def _first_order_update(
         self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, x0_s: torch.Tensor
     ) -> torch.Tensor:
-        """
-        DPM-Solver++ 1st-order update (DDIM-equivalent in x0 form):
-          x_t = (sigma_t / sigma_s) * x_s - alpha_t * expm1(-(lambda_t - lambda_s)) * x0_s
-        """
         B = x.shape[0]
-        s_in = s.expand(B).reshape(B, 1)
-        t_in = t.expand(B).reshape(B, 1)
+        if s.dim() == 0:
+            s_in = s.expand(B).reshape(B, 1)
+        else:
+            s_in = s
+        if t.dim() == 0:
+            t_in = t.expand(B).reshape(B, 1)
+        else:
+            t_in = t
 
         lam_s = self._lambda(s_in)
         lam_t = self._lambda(t_in)
@@ -137,25 +214,19 @@ class DPMSolverPP2M(Solver):
         t_prev_0: torch.Tensor,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        DPM-Solver++ 2nd-order multistep update (2M):
-
-        Let:
-          h0 = lambda(t_prev_0) - lambda(t_prev_1)
-          h  = lambda(t)        - lambda(t_prev_0)
-          r0 = h0 / h
-          D1_0 = (1/r0) * (model_prev_0 - model_prev_1)
-          phi_1 = expm1(-h)
-
-        Then:
-          x_t = (sigma_t / sigma_prev_0) * x
-                - alpha_t * phi_1 * model_prev_0
-                - 0.5 * alpha_t * phi_1 * D1_0
-        """
         B = x.shape[0]
-        t0_in = t_prev_0.expand(B).reshape(B, 1)
-        t1_in = t_prev_1.expand(B).reshape(B, 1)
-        t_in = t.expand(B).reshape(B, 1)
+        if t_prev_0.dim() == 0:
+            t0_in = t_prev_0.expand(B).reshape(B, 1)
+        else:
+            t0_in = t_prev_0
+        if t_prev_1.dim() == 0:
+            t1_in = t_prev_1.expand(B).reshape(B, 1)
+        else:
+            t1_in = t_prev_1
+        if t.dim() == 0:
+            t_in = t.expand(B).reshape(B, 1)
+        else:
+            t_in = t
 
         lam_1 = self._lambda(t1_in)
         lam_0 = self._lambda(t0_in)
@@ -164,10 +235,7 @@ class DPMSolverPP2M(Solver):
         h0 = lam_0 - lam_1
         h = lam_t - lam_0
 
-        # Avoid division by zero if times collapse numerically
-        h_safe = h.clamp_min(1e-12)
-        r0 = h0 / h_safe
-
+        r0 = h0 / (h + 1e-12)
         D1_0 = (model_prev_0 - model_prev_1) / r0.clamp_min(1e-12)
         phi_1 = torch.expm1(-h)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 import torch
 
@@ -14,8 +14,8 @@ from diffusion_model_2d.model import Predictor
 class SolverState:
     """Internal state for multistep solvers."""
 
-    t_prev: list[torch.Tensor]  # list of shape [1] tensors (times)
-    model_prev: list[torch.Tensor]  # list of model outputs at corresponding times
+    t_prev: List[torch.Tensor]  # list of shape [1] tensors (times)
+    model_prev: List[torch.Tensor]  # list of model outputs at corresponding times
 
 
 class Solver(ABC):
@@ -23,7 +23,7 @@ class Solver(ABC):
     Base class for samplers / solvers.
 
     - Works with continuous-time SDE wrappers that provide alpha(t) and sigma(t).
-    - Assumes the solver integrates from t1 -> t0 (decreasing times).
+    - Assumes the solver integrates from time 1 to 0 (decreasing times).
     """
 
     def __init__(
@@ -54,4 +54,68 @@ class Solver(ABC):
     def step(
         self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, state: SolverState
     ) -> tuple[torch.Tensor, SolverState]:
+        """
+        Perform one solver step from time s to time t.
+        Returns (x_t, new_state).
+        """
         raise NotImplementedError
+
+    def get_time_schedule(
+        self, steps: int, t_start: float, t_end: float, device: torch.device
+    ) -> torch.Tensor:
+        """
+        Generate the time schedule for sampling.
+
+        Derived classes can override this to implement specific schedules
+        (e.g., log-SNR uniform spacing).
+
+        Returns:
+            A tensor of shape [steps + 1] containing decreasing time values.
+        """
+        return torch.linspace(t_start, t_end, steps + 1, device=device)
+
+    @torch.no_grad()
+    def sample(
+        self,
+        x: torch.Tensor,
+        steps: int = 20,
+        t_start: float = 1.0,
+        t_end: float = 1e-4,
+        timesteps: Optional[torch.Tensor] = None,
+    ) -> List[torch.Tensor]:
+        """
+        Run the sampling loop from t_start to t_end.
+
+        Args:
+            x: Initial noise tensor [B, D].
+            steps: Number of sampling steps.
+            t_start: Starting time (usually 1.0 for diffusion).
+            t_end: Ending time (usually close to 0.0).
+            timesteps: Optional explicit time schedule [steps + 1].
+                       If provided, 'steps', 't_start', 't_end' are ignored.
+
+        Returns:
+            List of sample tensors at each step (length steps + 1: initial x and after each step).
+        """
+        device = x.device if self.device is None else self.device
+        x = x.to(device)
+
+        # 1. Determine the schedule
+        if timesteps is None:
+            timesteps = self.get_time_schedule(steps, t_start, t_end, device)
+        else:
+            timesteps = timesteps.to(device)
+            steps = len(timesteps) - 1
+
+        state = self.init_state()
+        history = [x.clone()]
+
+        # 2. Sampling loop
+        for i in range(steps):
+            s = timesteps[i]  # Current time
+            t = timesteps[i + 1]  # Next time
+
+            x, state = self.step(x, s, t, state)
+            history.append(x.clone())
+
+        return history

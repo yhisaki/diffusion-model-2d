@@ -7,10 +7,8 @@ class VESDE(SDE):
         self,
         sigma_min: float = 0.01,
         sigma_max: float = 50.0,
-        t0: float = 0.0,
-        t1: float = 1.0,
     ) -> None:
-        super().__init__(t0, t1)
+        super().__init__()
         if not (sigma_min > 0.0 and sigma_max > 0.0):
             raise ValueError("sigma_min and sigma_max must be positive.")
         if not (sigma_min < sigma_max):

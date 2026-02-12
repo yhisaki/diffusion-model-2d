@@ -9,7 +9,7 @@ class SDE(ABC):
     Abstract base class for diffusion SDEs used in score-based models.
 
     We consider an Itô SDE on x_t in R^d:
-        dx = f(x, t) dt + g(t) dW,   t in [t0, t1]
+        dx = f(x, t) dt + g(t) dW,   t in [0, 1]
     where:
       - f(x,t): drift (same shape as x)
       - g(t): diffusion coefficient (broadcastable to x), often shape [B, 1] or [B]
@@ -20,19 +20,8 @@ class SDE(ABC):
       - x is a torch.Tensor of shape [B, d] (or [B, ...])
     """
 
-    def __init__(self, t0: float = 0.0, t1: float = 1.0) -> None:
-        if not (t0 < t1):
-            raise ValueError(f"Require t0 < t1, got t0={t0}, t1={t1}.")
-        self._t0 = float(t0)
-        self._t1 = float(t1)
-
-    @property
-    def t0(self) -> float:
-        return self._t0
-
-    @property
-    def t1(self) -> float:
-        return self._t1
+    def __init__(self) -> None:
+        pass
 
     @abstractmethod
     def drift(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:

@@ -15,14 +15,12 @@ def loss_fn(
     """
     if eps < 0.0:
         raise ValueError(f"eps must be non-negative, got {eps}.")
+    if eps >= 1.0:
+        raise ValueError(f"eps must be in [0, 1), got {eps}.")
     B = x0.shape[0]
     device = x0.device
-    span = (sde.t1 - sde.t0) - eps
-    if span <= 0.0:
-        raise ValueError(
-            f"Require t1 - t0 > eps, got t0={sde.t0}, t1={sde.t1}, eps={eps}."
-        )
-    t = torch.rand(B, 1, device=device) * span + sde.t0 + eps
+    span = 1.0 - eps
+    t = torch.rand(B, 1, device=device) * span + eps
 
     mean, std = sde.marginal_prob(x0, t)
     z = torch.randn_like(x0)
