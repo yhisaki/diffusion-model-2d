@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 
+from diffusion_model_2d.guidance import Guidance
 from diffusion_model_2d.model import Predictor, PredictorType
 from diffusion_model_2d.sde.sde import SDE
 from diffusion_model_2d.sde.vp_sde import VPSDE
@@ -125,29 +126,54 @@ class DPMSolverPP2M(Solver):
 
         return timesteps
 
-    def _predict_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def _predict_x0(
+        self, x: torch.Tensor, t: torch.Tensor, guidance: Guidance | None = None
+    ) -> torch.Tensor:
+        """
+        Convert network output to x0 and apply guidance if provided.
+        """
         B = x.shape[0]
         if t.dim() == 0 or t.dim() == 1 and t.shape[0] == 1:
             t_in = t.expand(B).reshape(B, 1)
         else:
             t_in = t
-        return self.predictor(x, t_in)
+
+        # 1. Base model prediction
+        x0_pred = self.predictor(x, t_in)
+
+        # 2. Apply Guidance
+        if guidance is not None:
+            # SDE coefficients needed for correction scaling
+            alpha_t = self._alpha(t_in)
+            sigma_t = self._sigma(t_in)
+
+            # Compute correction: delta = -scale * (sigma^2/alpha^2) * grad_Loss
+            correction = guidance.compute_correction(x, x0_pred, t_in, alpha_t, sigma_t)
+            x0_pred = x0_pred + correction
+
+        return x0_pred
 
     def denoise_to_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        return self._predict_x0(x, t)
+        return self._predict_x0(x, t, guidance=None)
 
     def init_state(self) -> SolverState:
         return SolverState(t_prev=[], model_prev=[])
 
     @torch.no_grad()
     def step(
-        self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, state: SolverState
+        self,
+        x: torch.Tensor,
+        s: torch.Tensor,
+        t: torch.Tensor,
+        state: SolverState,
+        guidance: Guidance | None = None,
     ) -> tuple[torch.Tensor, SolverState]:
         # Evaluate model at current time s
         B = x.shape[0]
         s_in = s.expand(B).reshape(B, 1) if s.dim() == 0 else s
 
-        x0_s = self._predict_x0(x, s_in)
+        # Apply guidance inside _predict_x0
+        x0_s = self._predict_x0(x, s_in, guidance=guidance)
 
         # Update buffers
         t_prev = state.t_prev + [s.clone().detach()]

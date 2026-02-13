@@ -20,9 +20,6 @@ class SolverState:
 class Solver(ABC):
     """
     Base class for samplers / solvers.
-
-    - Works with continuous-time SDE wrappers that provide alpha(t) and sigma(t).
-    - Assumes the solver integrates from time 1 to 0 (decreasing times).
     """
 
     def __init__(
@@ -42,7 +39,7 @@ class Solver(ABC):
 
     @abstractmethod
     def denoise_to_x0(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Return x0 from x_t at time t. Used when denoise_to_x0=True in sample()."""
+        """Return x0 prediction from x_t at time t."""
         raise NotImplementedError
 
     @abstractmethod
@@ -51,7 +48,12 @@ class Solver(ABC):
 
     @abstractmethod
     def step(
-        self, x: torch.Tensor, s: torch.Tensor, t: torch.Tensor, state: SolverState
+        self,
+        x: torch.Tensor,
+        s: torch.Tensor,
+        t: torch.Tensor,
+        state: SolverState,
+        guidance: object | None = None,  # <--- Added
     ) -> tuple[torch.Tensor, SolverState]:
         """
         Perform one solver step from time s to time t.
@@ -64,12 +66,6 @@ class Solver(ABC):
     ) -> torch.Tensor:
         """
         Generate the time schedule for sampling.
-
-        Derived classes can override this to implement specific schedules
-        (e.g., log-SNR uniform spacing).
-
-        Returns:
-            A tensor of shape [steps + 1] containing decreasing time values.
         """
         return torch.linspace(t_start, t_end, steps + 1, device=device)
 
@@ -81,6 +77,7 @@ class Solver(ABC):
         t_start: float = 1.0,
         t_end: float = 1e-4,
         timesteps: torch.Tensor | None = None,
+        guidance: object | None = None,  # <--- Added
     ) -> list[torch.Tensor]:
         """
         Run the sampling loop from t_start to t_end.
@@ -88,14 +85,13 @@ class Solver(ABC):
         Args:
             x: Initial noise tensor [B, D].
             steps: Number of sampling steps.
-            t_start: Starting time (usually 1.0 for diffusion).
-            t_end: Ending time (usually close to 0.0).
-            timesteps: Optional explicit time schedule [steps + 1].
-                       If provided, 'steps', 't_start', 't_end' are ignored.
+            t_start: Starting time.
+            t_end: Ending time.
+            timesteps: Optional explicit time schedule.
+            guidance: Optional Guidance object to control generation.
 
         Returns:
-            List of sample tensors at each step (length steps + 1: initial x
-            and after each step).
+            List of sample tensors at each step.
         """
         device = x.device if self.device is None else self.device
         x = x.to(device)
@@ -115,7 +111,7 @@ class Solver(ABC):
             s = timesteps[i]  # Current time
             t = timesteps[i + 1]  # Next time
 
-            x, state = self.step(x, s, t, state)
+            x, state = self.step(x, s, t, state, guidance=guidance)
             history.append(x.clone())
 
         return history
