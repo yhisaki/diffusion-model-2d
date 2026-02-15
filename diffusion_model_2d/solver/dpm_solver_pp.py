@@ -33,9 +33,9 @@ class DPMSolverPP2M(Solver):
         *,
         device: torch.device | None = None,
     ) -> None:
-        if predictor.predictor_type != PredictorType.X_START:
+        if predictor.predictor_type not in (PredictorType.X_START, PredictorType.NOISE):
             raise ValueError(
-                f"DPMSolverPP2M requires PredictorType.X_START, "
+                "DPMSolverPP2M requires PredictorType.X_START or PredictorType.NOISE, "
                 f"got {predictor.predictor_type}"
             )
         if not isinstance(sde, VPSDE):
@@ -60,39 +60,21 @@ class DPMSolverPP2M(Solver):
         self, lambda_val: torch.Tensor, t_min: float = 1e-5, t_max: float = 1.0
     ) -> torch.Tensor:
         """
-        Numerically invert lambda(t) to find t using Newton's method.
-        f(t) = lambda(t) - lambda_val = 0
+        Invert lambda(t) -> t for linear VPSDE analytically (more stable than Newton).
+
+        Matches the reference implementation used in DPM-Solver / DPM-Solver++.
         """
-        # Initial guess: linear interpolation is usually close enough for convergence
-        # But simply starting from t_max or t_min is safer. Let's use midpoint.
-        t = torch.full_like(lambda_val, 0.5 * (t_min + t_max))
+        beta0 = float(self.sde.beta_min)
+        beta1 = float(self.sde.beta_max)
+        bdiff = beta1 - beta0
+        if bdiff <= 0.0:
+            raise ValueError("Require beta_max > beta_min for VPSDE.")
 
-        # Newton iterations
-        for _ in range(10):
-            # Calculate f(t) and f'(t)
-            # lambda(t) = log(alpha) - log(sigma)
-            # d(lambda)/dt = - beta(t) / (2 * sigma(t)^2)
-            # This derivative is derived from VP-SDE definitions.
-
-            # Clamp t to stay in valid range during iteration
-            t = t.clamp(t_min, t_max)
-
-            lam = self._lambda(t)
-            f = lam - lambda_val
-
-            beta_t = self.sde.beta(t)
-            sigma_t = self._sigma(t)
-            # Derivative: dlambda/dt
-            # sigma^2 can be small, add epsilon
-            d_lam = -0.5 * beta_t / (sigma_t.pow(2) + 1e-12)
-
-            # Update: t = t - f / f'
-            delta = f / (d_lam - 1e-12)  # Avoid div by zero
-            t = t - delta
-
-            if torch.abs(delta).max() < 1e-6:
-                break
-
+        # tmp = 2*(beta1-beta0)*log(1 + exp(-2*lambda))
+        zeros = torch.zeros_like(lambda_val)
+        tmp = 2.0 * bdiff * torch.logaddexp(-2.0 * lambda_val, zeros)
+        delta = beta0 * beta0 + tmp
+        t = tmp / (torch.sqrt(delta) + beta0) / bdiff
         return t.clamp(t_min, t_max)
 
     def get_time_schedule(
@@ -139,14 +121,19 @@ class DPMSolverPP2M(Solver):
             t_in = t
 
         # 1. Base model prediction
-        x0_pred = self.predictor(x, t_in)
+        alpha_t = self._alpha(t_in)
+        sigma_t = self._sigma(t_in)
+
+        if self.predictor.predictor_type == PredictorType.X_START:
+            x0_pred = self.predictor(x, t_in)
+        elif self.predictor.predictor_type == PredictorType.NOISE:
+            eps_pred = self.predictor(x, t_in)
+            x0_pred = (x - sigma_t * eps_pred) / alpha_t
+        else:
+            raise ValueError(f"Unknown predictor type: {self.predictor.predictor_type}")
 
         # 2. Apply Guidance
         if guidance is not None:
-            # SDE coefficients needed for correction scaling
-            alpha_t = self._alpha(t_in)
-            sigma_t = self._sigma(t_in)
-
             # Compute correction: delta = -scale * (sigma^2/alpha^2) * grad_Loss
             correction = guidance.compute_correction(x, x0_pred, t_in, alpha_t, sigma_t)
             x0_pred = x0_pred + correction
@@ -217,6 +204,7 @@ class DPMSolverPP2M(Solver):
         sigma_t = self._sigma(t_in)
         alpha_t = self._alpha(t_in)
 
+        # DPM-Solver++ (data/x0-prediction) uses expm1(-h).
         phi_1 = torch.expm1(-h)
         return (sigma_t / sigma_s) * x - alpha_t * phi_1 * x0_s
 
@@ -242,8 +230,9 @@ class DPMSolverPP2M(Solver):
         h0 = lam_0 - lam_1
         h = lam_t - lam_0
 
+        # Multistep DPM-Solver++(2M) uses expm1(-h).
         r0 = h0 / (h + 1e-12)
-        D1_0 = (model_prev_0 - model_prev_1) / r0.clamp_min(1e-12)
+        D1_0 = (model_prev_0 - model_prev_1) / (r0 + 1e-12)
         phi_1 = torch.expm1(-h)
 
         sigma_0 = self._sigma(t0_in)

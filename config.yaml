@@ -2,9 +2,35 @@ device: "cuda" # "cuda" or "cpu"
 seed: 1234
 
 data:
-  type: "circles" # "circles" or "spiral"
+  type: "checkerboard" # "swiss_roll" or "two_moons"
+  n_train_samples: 60000
+  noise: 0.05
 
 model:
-  predictor: "x_start" # "x_start" or "noise" or "score"
-  sde: "VP" # "VP" or "VE"
+  predictor: "noise" # "x_start" or "noise" or "score"
   ode_solver: "dpm_solver_pp" # "dpm_solver_pp" or "euler_maruyama"
+  time_embed_dim: 64
+  hidden: 256
+  sde:
+    type: "VP" # "VP" or "VE"
+    VP:
+      # VP-SDE parameters
+      beta_min: 0.1
+      beta_max: 20.0
+    VE:
+      # VE-SDE parameters
+      sigma_min: 0.01
+      sigma_max: 50.0
+
+training:
+  output_dir: "outputs/two_moons"
+  lr: 1.0e-3
+  weight_decay: 0.0
+  steps: 30000
+  batch_size: 512
+  eps: 1.0e-5
+  log_every: 100
+
+sampling:
+  num_samples: 10000
+  steps: 50
