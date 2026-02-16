@@ -13,7 +13,11 @@ from torch.utils.tensorboard import SummaryWriter
 from diffusion_model_2d.data import make_dataset
 from diffusion_model_2d.loss import loss_fn
 from diffusion_model_2d.model import Predictor, PredictorType
-from diffusion_model_2d.plot import plot_sampling_process, plot_training_data
+from diffusion_model_2d.plot import (
+    plot_generated_data,
+    plot_sampling_gif,
+    plot_training_data,
+)
 from diffusion_model_2d.sde.ve_sde import VESDE
 from diffusion_model_2d.sde.vp_sde import VPSDE
 from diffusion_model_2d.seed import set_seed
@@ -65,7 +69,7 @@ def main() -> None:
     # --- Setup ---
     set_seed(int(config["seed"]))
     device = torch.device(config["device"])
-    out_dir = Path(config["training"]["output_dir"])
+    out_dir = Path("outputs")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     writer = SummaryWriter(log_dir=str(out_dir / "tb"))
@@ -167,15 +171,17 @@ def main() -> None:
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    sampling_fig = plot_sampling_process(history, x_range, y_range)
-    sampling_html = out_dir / "samples.html"
-    sampling_fig.write_html(str(sampling_html))
-    print(f"Saved sampling plot to {sampling_html}")
+    training_png = out_dir / "training_data.png"
+    plot_training_data(x_train_orig, training_png, x_range, y_range)
+    print(f"Saved training data plot to {training_png}")
 
-    training_fig = plot_training_data(x_train_orig)
-    training_html = out_dir / "training_data.html"
-    training_fig.write_html(str(training_html))
-    print(f"Saved training data plot to {training_html}")
+    generated_png = out_dir / "generated_samples.png"
+    plot_generated_data(history[-1], generated_png, x_range, y_range)
+    print(f"Saved generated samples plot to {generated_png}")
+
+    sampling_gif = out_dir / "sampling_process.gif"
+    plot_sampling_gif(history, sampling_gif, x_range, y_range)
+    print(f"Saved sampling animation to {sampling_gif}")
 
     writer.close()
 

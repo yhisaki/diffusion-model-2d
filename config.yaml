@@ -7,7 +7,7 @@ data:
   noise: 0.05
 
 model:
-  predictor: "noise" # "x_start" or "noise" or "score"
+  predictor: "x_start" # "x_start" or "noise" or "score"
   ode_solver: "dpm_solver_pp" # "dpm_solver_pp" or "euler_maruyama"
   time_embed_dim: 64
   hidden: 256
@@ -23,7 +23,6 @@ model:
       sigma_max: 50.0
 
 training:
-  output_dir: "outputs/two_moons"
   lr: 1.0e-3
   weight_decay: 0.0
   steps: 30000

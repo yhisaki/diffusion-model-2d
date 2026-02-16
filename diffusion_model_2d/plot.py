@@ -1,119 +1,106 @@
 from __future__ import annotations
 
-import plotly.graph_objects as go
+from pathlib import Path
+
+import matplotlib.animation as animation
+import matplotlib.artist as martist
+import matplotlib.pyplot as plt
 import torch
-
-
-def plot_sampling_process(
-    history: list[torch.Tensor],
-    x_range: list[float],
-    y_range: list[float],
-) -> go.Figure:
-    """Build an interactive plotly figure showing the denoising process with a slider.
-
-    Args:
-        history: List of [N, 2] tensors from solver.sample() (already denormalized).
-        x_range: [min, max] for x-axis.
-        y_range: [min, max] for y-axis.
-
-    Returns:
-        A plotly Figure with slider animation.
-    """
-    n_steps = len(history)
-
-    # Initial data (step 0)
-    init_pts = history[0].cpu().numpy()
-    fig = go.Figure(
-        data=[
-            go.Scatter(
-                x=init_pts[:, 0],
-                y=init_pts[:, 1],
-                mode="markers",
-                marker=dict(size=2, opacity=0.4, color="blue"),
-            ),
-        ],
-    )
-
-    # Build one frame per step
-    frames = []
-    for i, h in enumerate(history):
-        pts = h.cpu().numpy()
-        frames.append(
-            go.Frame(
-                data=[
-                    go.Scatter(
-                        x=pts[:, 0],
-                        y=pts[:, 1],
-                        mode="markers",
-                        marker=dict(size=2, opacity=0.4, color="blue"),
-                    ),
-                ],
-                name=str(i),
-            )
-        )
-
-    fig.frames = frames
-
-    # Slider
-    sliders = [
-        dict(
-            active=0,
-            currentvalue=dict(prefix="Step: "),
-            pad=dict(t=50),
-            steps=[
-                dict(
-                    args=[[str(i)], dict(mode="immediate", frame=dict(duration=0))],
-                    method="animate",
-                    label=str(i),
-                )
-                for i in range(n_steps)
-            ],
-        )
-    ]
-
-    fig.update_layout(
-        title="Sampling Process",
-        xaxis=dict(range=x_range, scaleanchor="y"),
-        yaxis=dict(range=y_range),
-        sliders=sliders,
-        width=800,
-        height=700,
-        showlegend=False,
-    )
-
-    return fig
 
 
 def plot_training_data(
     x_train: torch.Tensor,
-) -> go.Figure:
-    """Build a plotly figure showing the training data distribution.
+    save_path: Path,
+    x_range: list[float] | None = None,
+    y_range: list[float] | None = None,
+) -> None:
+    """Save a scatter plot of the training data distribution.
 
     Args:
         x_train: Training data [M, 2] (original scale).
-
-    Returns:
-        A plotly Figure.
+        save_path: Output path for the PNG file.
+        x_range: Optional [min, max] for x-axis.
+        y_range: Optional [min, max] for y-axis.
     """
     train_np = x_train.cpu().numpy()
 
-    fig = go.Figure(
-        data=[
-            go.Scatter(
-                x=train_np[:, 0],
-                y=train_np[:, 1],
-                mode="markers",
-                marker=dict(size=2, opacity=0.4, color="gray"),
-            ),
-        ],
-    )
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(train_np[:, 0], train_np[:, 1], s=2, alpha=0.4, c="gray")
+    ax.set_title("Training Data")
+    ax.set_aspect("equal")
+    if x_range is not None:
+        ax.set_xlim(x_range)
+    if y_range is not None:
+        ax.set_ylim(y_range)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
 
-    fig.update_layout(
-        title="Training Data",
-        xaxis=dict(scaleanchor="y"),
-        width=800,
-        height=700,
-        showlegend=False,
-    )
 
-    return fig
+def plot_generated_data(
+    samples: torch.Tensor,
+    save_path: Path,
+    x_range: list[float] | None = None,
+    y_range: list[float] | None = None,
+) -> None:
+    """Save a scatter plot of the generated samples.
+
+    Args:
+        samples: Generated data [N, 2] (original scale).
+        save_path: Output path for the PNG file.
+        x_range: Optional [min, max] for x-axis.
+        y_range: Optional [min, max] for y-axis.
+    """
+    pts = samples.cpu().numpy()
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(pts[:, 0], pts[:, 1], s=2, alpha=0.4, c="blue")
+    ax.set_title("Generated Samples")
+    ax.set_aspect("equal")
+    if x_range is not None:
+        ax.set_xlim(x_range)
+    if y_range is not None:
+        ax.set_ylim(y_range)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_sampling_gif(
+    history: list[torch.Tensor],
+    save_path: Path,
+    x_range: list[float] | None = None,
+    y_range: list[float] | None = None,
+    interval: int = 100,
+) -> None:
+    """Save a GIF animation of the sampling (denoising) process.
+
+    Args:
+        history: List of [N, 2] tensors from solver.sample() (already denormalized).
+        save_path: Output path for the GIF file.
+        x_range: Optional [min, max] for x-axis.
+        y_range: Optional [min, max] for y-axis.
+        interval: Delay between frames in milliseconds.
+    """
+    fig, ax = plt.subplots(figsize=(6, 6))
+    scatter = ax.scatter([], [], s=2, alpha=0.4, c="blue")
+    ax.set_title("Sampling Process")
+    ax.set_aspect("equal")
+    if x_range is not None:
+        ax.set_xlim(x_range)
+    if y_range is not None:
+        ax.set_ylim(y_range)
+
+    step_text = ax.text(0.02, 0.98, "", transform=ax.transAxes, verticalalignment="top")
+
+    def update(frame: int) -> tuple[martist.Artist, martist.Artist]:
+        pts = history[frame].cpu().numpy()
+        scatter.set_offsets(pts)
+        step_text.set_text(f"Step {frame}/{len(history) - 1}")
+        return scatter, step_text
+
+    anim = animation.FuncAnimation(
+        fig, update, frames=len(history), interval=interval, blit=True
+    )
+    anim.save(str(save_path), writer="pillow")
+    plt.close(fig)
