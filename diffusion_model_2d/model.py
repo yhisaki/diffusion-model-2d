@@ -27,11 +27,9 @@ class Predictor(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden, hidden),
             nn.ReLU(),
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
             nn.Linear(hidden, x_dim),
         )
 
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         input_data = torch.hstack([x, t])
-        return self.net(input_data)
+        return self.net(input_data) + x

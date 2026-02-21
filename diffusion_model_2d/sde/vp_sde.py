@@ -26,6 +26,12 @@ class VPSDE(SDE):
         exp_neg = torch.exp(-self.int_beta(t))
         return torch.sqrt((1.0 - exp_neg).clamp_min(1e-12))
 
+    def snr(self, t: torch.Tensor) -> torch.Tensor:
+        return self.alpha(t) ** 2 / (self.sigma(t) ** 2 + 1e-12)
+
+    def log_snr(self, t: torch.Tensor) -> torch.Tensor:
+        return 2.0 * (torch.log(self.alpha(t)) - torch.log(self.sigma(t)))
+
     def drift(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         return -0.5 * self.beta(t) * x
 

@@ -8,6 +8,29 @@ import matplotlib.pyplot as plt
 import torch
 
 
+def plot_loss_curve(
+    steps: list[int],
+    losses: list[float],
+    save_path: Path,
+) -> None:
+    """Save a plot of training loss convergence.
+
+    Args:
+        steps: List of step indices (x-axis).
+        losses: List of loss values (y-axis).
+        save_path: Output path for the PNG file.
+    """
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(steps, losses, color="steelblue", linewidth=0.8, alpha=0.9)
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Loss")
+    ax.set_title("Training Loss Convergence")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+
 def plot_training_data(
     x_train: torch.Tensor,
     save_path: Path,
@@ -55,7 +78,7 @@ def plot_generated_data(
 
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.scatter(pts[:, 0], pts[:, 1], s=2, alpha=0.4, c="blue")
-    ax.set_title("Generated Samples")
+    ax.set_title(r"$w(\lambda) = sigmoid(-\lambda + 2)$")
     ax.set_aspect("equal")
     if x_range is not None:
         ax.set_xlim(x_range)

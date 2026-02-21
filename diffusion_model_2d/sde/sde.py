@@ -31,6 +31,16 @@ class SDE(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def snr(self, t: torch.Tensor) -> torch.Tensor:
+        """Return signal-to-noise ratio (SNR) of the SDE."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def log_snr(self, t: torch.Tensor) -> torch.Tensor:
+        """Return log signal-to-noise ratio (log SNR) of the SDE."""
+        raise NotImplementedError
+
+    @abstractmethod
     def diffusion(self, t: torch.Tensor) -> torch.Tensor:
         """
         Return diffusion coefficient g(t).

@@ -3,8 +3,8 @@ seed: 1234
 
 data:
   type: "checkerboard" # "swiss_roll" or "two_moons"
-  n_train_samples: 60000
-  noise: 0.05
+  n_train_samples: 10000
+  noise: 0.01
 
 model:
   predictor: "x_start" # "x_start" or "noise" or "score"
@@ -25,7 +25,7 @@ model:
 training:
   lr: 1.0e-3
   weight_decay: 0.0
-  steps: 30000
+  steps: 100000
   batch_size: 512
   eps: 1.0e-5
   log_every: 100

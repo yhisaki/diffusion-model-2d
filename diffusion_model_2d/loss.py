@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import torch
 
 from diffusion_model_2d.model import Predictor, PredictorType
@@ -9,6 +11,7 @@ def loss_fn(
     predictor: Predictor,
     x0: torch.Tensor,
     eps: float,
+    weight_fn: Callable[[torch.Tensor], torch.Tensor] = lambda lam: 1.0,
 ) -> torch.Tensor:
     """
     Loss function for score-based models.
@@ -30,13 +33,17 @@ def loss_fn(
 
     if predictor.predictor_type == PredictorType.X_START:
         target = x0
-        weight = 1.0
+        snr = sde.snr(t).detach()
+        log_snr = sde.log_snr(t).detach()
+        weight = snr * weight_fn(log_snr).detach()
     elif predictor.predictor_type == PredictorType.NOISE:
         target = z
-        weight = 1.0
+        log_snr = sde.log_snr(t).detach()
+        weight = weight_fn(log_snr).detach()
     elif predictor.predictor_type == PredictorType.SCORE:
         target = -z / std
-        weight = std**2
+        log_snr = sde.log_snr(t).detach()
+        weight = (std**2).detach() * weight_fn(log_snr).detach()
     else:
         raise ValueError(f"Unknown predictor type: {predictor.predictor_type}")
 

@@ -26,6 +26,12 @@ class VESDE(SDE):
         log_ratio = t.new_tensor(self._log_sigma_ratio)
         return self.sigma_min * torch.exp(t * log_ratio)
 
+    def snr(self, t: torch.Tensor) -> torch.Tensor:
+        return 1 / (self.sigma(t) ** 2)
+
+    def log_snr(self, t: torch.Tensor) -> torch.Tensor:
+        return -2.0 * torch.log(self.sigma(t))
+
     def drift(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         return torch.zeros_like(x)
 

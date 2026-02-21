@@ -15,6 +15,7 @@ from diffusion_model_2d.loss import loss_fn
 from diffusion_model_2d.model import Predictor, PredictorType
 from diffusion_model_2d.plot import (
     plot_generated_data,
+    plot_loss_curve,
     plot_sampling_gif,
     plot_training_data,
 )
@@ -92,6 +93,8 @@ def main() -> None:
         hidden=int(config["model"]["hidden"]),
     ).to(device)
 
+    predictor = torch.compile(predictor)
+
     sde = build_sde(config)
 
     optimizer = Adam(
@@ -115,20 +118,40 @@ def main() -> None:
     x_train = x_train.to(device)
     n_data = x_train.shape[0]
 
+    loss_steps: list[int] = []
+    loss_values: list[float] = []
+
     for step in range(1, steps + 1):
         indices = torch.randint(0, n_data, (batch_size,), device=device)
         x0 = x_train[indices]
 
         optimizer.zero_grad(set_to_none=True)
-        loss = loss_fn(sde=sde, predictor=predictor, x0=x0, eps=eps)
+
+        def weight_fn(lam: torch.Tensor) -> torch.Tensor:
+            return torch.sigmoid(-lam + 5.0)
+
+        loss = loss_fn(
+            sde=sde,
+            predictor=predictor,
+            x0=x0,
+            eps=eps,
+            weight_fn=weight_fn,
+        )
         loss.backward()
         optimizer.step()
 
         loss_val = loss.item()
+        loss_steps.append(step)
+        loss_values.append(loss_val)
         writer.add_scalar("train/loss", float(loss_val), step)
 
         if step % log_every == 0 or step == 1:
             print(f"step={step:6d} loss={loss_val:.6f}")
+
+    # Plot loss convergence
+    loss_png = out_dir / "loss_curve.png"
+    plot_loss_curve(loss_steps, loss_values, loss_png)
+    print(f"Saved loss curve to {loss_png}")
 
     ckpt_path = out_dir / "predictor.pt"
     torch.save(
