@@ -1,0 +1,6 @@
+lr: 1.0e-3
+weight_decay: 0.0
+steps: 100000
+batch_size: 512
+eps: 1.0e-5
+log_every: 100

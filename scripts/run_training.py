@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
-from typing import Any
 
+import hydra
 import numpy as np
 import torch
-import yaml
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.optim import Adam
 from torch.utils.tensorboard import SummaryWriter
 
@@ -25,61 +25,39 @@ from diffusion_model_2d.seed import set_seed
 from diffusion_model_2d.solver import DPMSolverPP2M
 
 
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Train a 2D diffusion model on two moons"
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=Path("config.yaml"),
-        help="Path to config yaml",
-    )
-    return parser.parse_args()
-
-
-def build_sde(config: dict[str, Any]) -> VPSDE | VESDE:
-    sde_cfg = config["model"]["sde"]
-    sde_name = str(sde_cfg["type"]).upper()
+def build_sde(config: DictConfig) -> VPSDE | VESDE:
+    sde_cfg = config.model.sde
+    sde_name = str(sde_cfg.type).upper()
 
     if sde_name == "VP":
-        vp_cfg = sde_cfg["VP"]
         return VPSDE(
-            beta_min=float(vp_cfg["beta_min"]),
-            beta_max=float(vp_cfg["beta_max"]),
+            beta_min=float(sde_cfg.beta_min),
+            beta_max=float(sde_cfg.beta_max),
         )
     if sde_name == "VE":
-        ve_cfg = sde_cfg["VE"]
         return VESDE(
-            sigma_min=float(ve_cfg["sigma_min"]),
-            sigma_max=float(ve_cfg["sigma_max"]),
+            sigma_min=float(sde_cfg.sigma_min),
+            sigma_max=float(sde_cfg.sigma_max),
         )
 
     raise ValueError(f"Unknown SDE: {sde_name}")
 
 
-def main() -> None:
-    args = parse_args()
-    config = load_config(args.config)
-
+@hydra.main(version_base="1.3", config_path="../configs", config_name="config")
+def main(config: DictConfig) -> None:
     # --- Setup ---
-    set_seed(int(config["seed"]))
-    device = torch.device(config["device"])
-    out_dir = Path("outputs")
+    set_seed(int(config.seed))
+    device = torch.device(config.device)
+    out_dir = Path(HydraConfig.get().runtime.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     writer = SummaryWriter(log_dir=str(out_dir / "tb"))
 
     x_train = make_dataset(
-        str(config["data"]["type"]),
-        int(config["data"]["n_train_samples"]),
-        float(config["data"]["noise"]),
-        int(config["seed"]),
+        str(config.data.type),
+        int(config.data.n_train_samples),
+        float(config.data.noise),
+        int(config.seed),
     )
 
     # Standardize for stable training and save stats for inverse transform.
@@ -88,9 +66,9 @@ def main() -> None:
     x_train = (x_train - data_mean) / data_std
 
     predictor = Predictor(
-        predictor_type=PredictorType(config["model"]["predictor"]),
+        predictor_type=PredictorType(config.model.predictor),
         x_dim=2,
-        hidden=int(config["model"]["hidden"]),
+        hidden=int(config.model.hidden),
     ).to(device)
 
     predictor = torch.compile(predictor)
@@ -99,20 +77,20 @@ def main() -> None:
 
     optimizer = Adam(
         predictor.parameters(),
-        lr=float(config["training"]["lr"]),
-        weight_decay=float(config["training"]["weight_decay"]),
+        lr=float(config.training.lr),
+        weight_decay=float(config.training.weight_decay),
     )
 
-    steps = int(config["training"]["steps"])
-    batch_size = int(config["training"]["batch_size"])
-    eps = float(config["training"]["eps"])
-    log_every = int(config["training"]["log_every"])
+    steps = int(config.training.steps)
+    batch_size = int(config.training.batch_size)
+    eps = float(config.training.eps)
+    log_every = int(config.training.log_every)
 
     print(f"Training on device={device} for {steps} steps")
     print(
-        f"dataset={config['data']['type']} "
-        f"n_train_samples={config['data']['n_train_samples']} "
-        f"noise={config['data']['noise']}"
+        f"dataset={config.data.type} "
+        f"n_train_samples={config.data.n_train_samples} "
+        f"noise={config.data.noise}"
     )
 
     x_train = x_train.to(device)
@@ -157,7 +135,7 @@ def main() -> None:
     torch.save(
         {
             "state_dict": predictor.state_dict(),
-            "config": config,
+            "config": OmegaConf.to_container(config, resolve=True),
             "data_mean": data_mean,
             "data_std": data_std,
         },
@@ -168,10 +146,10 @@ def main() -> None:
     solver = DPMSolverPP2M(sde=sde, predictor=predictor, device=device)
 
     with torch.no_grad():
-        x_t = sde.prior_sampling(
-            torch.Size([int(config["sampling"]["num_samples"]), 2])
-        ).to(device)
-        history = solver.sample(x_t, steps=int(config["sampling"]["steps"]))
+        x_t = sde.prior_sampling(torch.Size([int(config.sampling.num_samples), 2])).to(
+            device
+        )
+        history = solver.sample(x_t, steps=int(config.sampling.steps))
 
         # Denormalize all steps
         mean_dev = data_mean.to(device)

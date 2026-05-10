@@ -1,0 +1,14 @@
+defaults:
+  - data: checkerboard
+  - model: default
+  - model/sde: vp
+  - training: default
+  - sampling: default
+  - _self_
+
+device: cuda
+seed: 1234
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}

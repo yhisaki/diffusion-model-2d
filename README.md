@@ -78,15 +78,21 @@ uv pip install -e .
 Train:
 
 ```bash
-uv run scripts/run_training.py --config config.yaml
+uv run scripts/run_training.py
 ```
 
 This will train the model and save outputs (samples, plots, TensorBoard logs)
-in the `outputs/` directory.
+in a Hydra run directory under `outputs/`.
+
+Override hyperparameters from the command line:
+
+```bash
+uv run scripts/run_training.py data=two_moons model/sde=ve training.lr=5e-4
+```
 
 ## ⚙️ Configuration
 
-All settings are defined in `config.yaml`:
+All settings are defined as Hydra configs under `configs/`:
 
 * `device` (CUDA or CPU)
 * `seed` (reproducibility)

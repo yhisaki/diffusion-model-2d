@@ -1,0 +1,4 @@
+predictor: x_start
+ode_solver: dpm_solver_pp
+time_embed_dim: 64
+hidden: 256
